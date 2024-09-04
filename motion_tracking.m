@@ -1,16 +1,30 @@
 %% Smooth myometer displacement tracking
 
+%% Set parameters
 framerate = 25; % frames per second
 dt = 1/framerate;
 
+% Visualisation and saving toggle on/off
 playAnimation = true;
+saveAnimation = true;
+playAverageAnimation = false;
+
+% Test features on / off
+interpolatedField = false; % doesn't work well without dense coverage of glitter
+
+% Define search information
+numGlitter_X = 5;
+numGlitter_Y = 3;
+grid_dim = [numGlitter_X,numGlitter_Y];
+search_rad = 10; % pixels (radius around glitter points to average)
 
 % Define paths for image files and saved outputs
 folder_main = '/Users/jdow403/Desktop/AWB015_VID006';
 folder_src = append(folder_main, '/images/');
 folder_outputs = append(folder_main, '/outputs');
+output_file_prefix = '/trackedcolon';
 
-% Load first image
+%% Load images and select region of interest
 dirList = dir(append(folder_src,'*.Bmp'));
 
 T = struct2table(dirList);
@@ -31,6 +45,7 @@ refImage_roi = insertShape(refImage, 'Rectangle', roiBox, 'Color', 'green');
 figure; imshow(refImage_roi);
 title("Selected Region of Interest");
 
+%% Feature tracking
 % Detect features to track
 points = detectMinEigenFeatures(im2gray(refImage), 'ROI', roiBox);
 figure; imshow(refImage);
@@ -54,6 +69,7 @@ nPoints = size(pts, 1);
 
 x = NaN(nPoints, length(dirList)); y = x; V = x;
 videoPlayer = vision.VideoPlayer();
+
 % For loop through images in folder of interest
 for imNum = 1:length(dirList)
     % Load image
@@ -99,25 +115,27 @@ if playAnimation
 end
 
 %% Save animation
-video_object = VideoWriter(append(folder_outputs,'/trackedcolon'),'MPEG-4');
-open(video_object);
-for imNum = 1:10:length(dirList)
-    currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
-    pts = [x(:,imNum), y(:,imNum)];
-    currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-    writeVideo(video_object, currentImage);
+if saveAnimation
+    video_object = VideoWriter(append(folder_outputs,output_file_prefix),'MPEG-4');
+    open(video_object);
+    for imNum = 1:10:length(dirList)
+        currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
+        pts = [x(:,imNum), y(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+        writeVideo(video_object, currentImage);
+    end
+    close(video_object);
 end
-close(video_object);
 
 %% Convert from pixels to mm
 fig = figure;
 imshow(refImage)
-title("Draw line equivalent to 10 mm");
+title("Draw line equivalent to 10 mm and press Enter");
 roi = drawline;
 k = waitforbuttonpress;
 
 length_line = sqrt((roi.Position(1,1)-roi.Position(2,1))^2 + (roi.Position(1,2)-roi.Position(2,2))^2);
-ppmm = length_line/10; %pixels per mm
+ppmm = length_line/10; % pixels per mm
 close(fig)
 
 %% Manually select glitter as points to track
@@ -128,10 +146,8 @@ title("Select glitter locations and press Enter");
 close(fig);
 
 %% Group x and y displacement per point of glitter
-search_rad = 10; % pixels
-
-av_x = NaN(length(glitter_x), size(x,2)); av_y = av_x;
-
+av_x = NaN(length(glitter_x), size(x,2));
+av_y = av_x;
 for i = 1:length(glitter_x)
     temp_x = x(x(:,1)>=(glitter_x(i) - search_rad) & x(:,1) <= (glitter_x(i) + search_rad), :);
     av_x(i, :) = mean(temp_x);
@@ -142,21 +158,22 @@ end
 
 clear temp_x temp_y
 
-%% Visualise averaged displacements (pp of glitter)
-videoPlayer = vision.VideoPlayer();
+%% Visualise averaged displacements (per piece of glitter)
+if playAveragedAnimation
+    videoPlayer = vision.VideoPlayer();
 
-for imNum = 1:length(dirList)
-    currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
-    pts = [av_x(:,imNum), av_y(:,imNum)];
-    currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-    currentImage = insertShape(currentImage, 'circle', [av_x(:,imNum), av_y(:,imNum), repmat(search_rad,[size(av_x,1),1])], 'Color', 'green');
-    videoPlayer(currentImage)
+    for imNum = 1:length(dirList)
+        currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
+        pts = [av_x(:,imNum), av_y(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+        currentImage = insertShape(currentImage, 'circle', [av_x(:,imNum), av_y(:,imNum), repmat(search_rad,[size(av_x,1),1])], 'Color', 'green');
+        videoPlayer(currentImage)
+    end
+    release(videoPlayer)
 end
-release(videoPlayer)
 
 %% Calculate average y-displacement and x-displacement in the different axes
 
-grid_dim = [5,3]; % [num points in x direction, num points in y direction]
 av_x_sort = sortrows(av_x, 1);
 av_y_sort = sortrows(av_y, 1);
 
@@ -169,6 +186,7 @@ for y_columns = 1:grid_dim(2)
     y_disp(y_columns,:) = mean(av_y_sort((grid_dim(1)*(y_columns-1) + 1):(grid_dim(1)*(y_columns)),:),1);
     y_disp_0(y_columns,:) = y_disp(y_columns,:) - y_disp(y_columns,1);
 end
+
 y_disp_legend = y_disp(:,1)./ppmm;
 x_disp_legend = x_disp(:,1)./ppmm;
 
@@ -178,26 +196,14 @@ imNum = 1;
 currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
 pts = [av_x(:,imNum), av_y(:,imNum)];
 
-% set the colour depending on
 [av_x_sort, idx] = sortrows(av_x, 1);
 av_y_sort = av_y(idx,:);
-
-%currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'white');
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(1:3,imNum), av_y_sort(1:3,imNum), repmat(search_rad,[3,1])],'Opacity', 0.3, 'ShapeColor', colors(1,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(4:6,imNum), av_y_sort(4:6,imNum), repmat(search_rad,[3,1])], 'Opacity', 0.3,'ShapeColor', colors(2,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(7:9,imNum), av_y_sort(7:9,imNum), repmat(search_rad,[3,1])], 'Opacity', 0.3,'ShapeColor', colors(3,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(10:12,imNum), av_y_sort(10:12,imNum), repmat(search_rad,[3,1])], 'Opacity', 0.3,'ShapeColor', colors(4,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(13:15,imNum), av_y_sort(13:15,imNum), repmat(search_rad,[3,1])], 'Opacity', 0.3,'ShapeColor', colors(5,:), 'LineWidth', 2);
-
-%figure;
-%title('x displacement')
-%subplot(1,2,1)
-%hold on
-%for i = 1:size(x_disp,1)
-%    plot(time,x_disp(i,:)./ppmm, 'LineWidth', 1.5)
-%end
-%subplot(1,2,2)
-%imshow(currentImage)
+for i = 1:numGlitter_X
+    range = (numGlitter_Y*(i-1)+1):(numGlitter_Y*i);
+    currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(range,imNum), ...
+        av_y_sort(range,imNum), ...
+        repmat(search_rad,[numGlitter_Y,1])],'Opacity', 0.3, 'ShapeColor', colors(i,:), 'LineWidth', 2);
+end
 
 figure;
 subplot(1,2,1)
@@ -217,24 +223,15 @@ imNum = 1;
 currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
 pts = [av_x(:,imNum), av_y(:,imNum)];
 
-% set the colour depending on
 [av_y_sort, idx] = sortrows(av_y, 1);
 av_x_sort = av_x(idx,:);
 
-%currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'white');
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(1:5,imNum), av_y_sort(1:5,imNum), repmat(search_rad,[5,1])], 'Opacity', 0.3, 'ShapeColor', colors(1,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(6:10,imNum), av_y_sort(6:10,imNum), repmat(search_rad,[5,1])], 'Opacity', 0.3, 'ShapeColor', colors(2,:), 'LineWidth', 2);
-currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(11:15,imNum), av_y_sort(11:15,imNum), repmat(search_rad,[5,1])], 'Opacity', 0.3, 'ShapeColor', colors(3,:), 'LineWidth', 2);
-
-%figure;
-%subplot(1,2,1)
-%title('y displacement')
-%hold on
-%for i = 1:size(y_disp,1)
-%    plot(time,y_disp(i,:)./ppmm, 'LineWidth', 1.5)
-%end
-%subplot(1,2,2)
-%imshow(currentImage)
+for i = 1:numGlitter_Y
+    range = (numGlitter_X*(i-1)+1):(numGlitter_X*i);
+    currentImage = insertShape(currentImage, 'filled-circle', [av_x_sort(range,imNum), ...
+        av_y_sort(range,imNum), ...
+        repmat(search_rad,[numGlitter_X,1])],'Opacity', 0.3, 'ShapeColor', colors(i,:), 'LineWidth', 2);
+end
 
 figure;
 subplot(1,2,1)
@@ -264,50 +261,39 @@ dx_alt = diff(x,1,2)/dt;
 figure; hold on;  plot(dx_alt(5,20:(end-20))); plot(dx(5,20:(end-20)), 'LineWidth', 2);
 
 %% Interpolate velocities across rectangle
-border_size = 50;
-grid_size = 25;
+if interpolatedField
+    border_size = 50;
+    grid_size = 25;
 
-[Xq, Yq] = meshgrid(round(roiBox(1)+border_size):grid_size:(round(roiBox(1))+round(roiBox(3))-border_size), ...
-    round(roiBox(2)+border_size):grid_size:(round(roiBox(1))+round(roiBox(4))-border_size));
+    [Xq, Yq] = meshgrid(round(roiBox(1)+border_size):grid_size:(round(roiBox(1))+round(roiBox(3))-border_size), ...
+        round(roiBox(2)+border_size):grid_size:(round(roiBox(1))+round(roiBox(4))-border_size));
 
-dx_q = zeros(length(Xq(:)), size(x,2));
-dy_q = zeros(length(Yq(:)), size(y,2));
+    dx_q = zeros(length(Xq(:)), size(x,2));
+    dy_q = zeros(length(Yq(:)), size(y,2));
 
-for i = 20:(size(x, 2)-20)
-    F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
-    Vq = F(Xq, Yq);
-    dx_q(:,i) = Vq(:);
+    for i = 20:(size(x, 2)-20)
+        F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
+        Vq = F(Xq, Yq);
+        dx_q(:,i) = Vq(:);
 
-    F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
-    Vq = F(Xq, Yq);
-    dy_q(:,i) = Vq(:);
+        F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
+        Vq = F(Xq, Yq);
+        dy_q(:,i) = Vq(:);
+    end
+
+    x_q = cumtrapz(dx_q, 2)*dt + repmat(Xq(:), [1, size(x,2)]);
+    y_q = cumtrapz(dy_q, 2)*dt + repmat(Yq(:), [1, size(y,2)]);
+
+    % Play animation of interpolated tracking
+    videoPlayer = vision.VideoPlayer();
+
+    for imNum = 1:length(dirList)
+        currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
+        pts = [x_q(:,imNum), y_q(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+
+        videoPlayer(currentImage)
+    end
+    release(videoPlayer)
+
 end
-
-x_q = cumtrapz(dx_q, 2)*dt + repmat(Xq(:), [1, size(x,2)]);
-y_q = cumtrapz(dy_q, 2)*dt + repmat(Yq(:), [1, size(y,2)]);
-
-%% Play animation of interpolated tracking
-videoPlayer = vision.VideoPlayer();
-
-for imNum = 1:length(dirList)
-    currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
-    pts = [x_q(:,imNum), y_q(:,imNum)];
-    currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-
-    videoPlayer(currentImage)
-end
-release(videoPlayer)
-
-%% Test
-videoPlayer = vision.VideoPlayer();
-
-for imNum = 1:length(dirList)
-    currentImage = imread(append(dirList(imNum).folder, '/', dirList(imNum).name));
-    pts = [x(123,imNum), y(123,imNum)];
-    currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-
-    videoPlayer(currentImage)
-end
-release(videoPlayer)
-
-
