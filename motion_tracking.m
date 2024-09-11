@@ -189,7 +189,11 @@ close(fig)
 
 %% Manually select glitter as points to track
 fig = figure;
-imshow(refImage)
+currentImage = imread(fullfile(dirList(length(dirList)).folder, dirList(length(dirList)).name));
+pts = [x(:,length(dirList)), y(:,length(dirList))];
+currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+
+imshow(currentImage)
 title("Select glitter locations and press Enter");
 [glitter_x, glitter_y] = getpts;
 close(fig);
