@@ -8,17 +8,19 @@ search_rad = 10; % pixels (radius around glitter points to average)
 % Visualisation and saving toggle on/off
 visualiseProgress = false; % preview tracking throughout analysis
 playAnimation = false;
-saveAnimation = false;
-playAverageAnimation = false;
+playAveragedAnimation = false;
 playInterpAnimation = false;
+
+saveRawVideo = true;
+saveConfidentTrackVideo = true;
+saveAverageTrackVideo = true;
+saveTracking = true;
 
 % Test features on / off
 interpolatedField = false; % doesn't work well without dense coverage of glitter
 
 %% Define paths for image files and for storing outputs
 folder_src = '/Users/jdow403/Desktop/AWB015_VID006';
-output_file_suffix = '_tracked';
-
 if (~isfolder(folder_src) || numel(dir(fullfile(folder_src,'*.Bmp'))) == 0)
     folder_src = uigetdir();
 end
@@ -29,7 +31,7 @@ end
 
 if exist(fullfile(folder_src,'outputs'), 'dir')
     % check if processing has already been performed
-    if numel(dir(fullfile(folder_src,'outputs','*.mat'))) > 0
+    if numel(dir(fullfile(folder_src,'outputs','*tracked_averaged.mat'))) > 0
         % ask user if they want to repeat analysis
         response = input("Motion tracking output detected, are you sure you want to proceed? (y/n) \n", "s");
         if (lower(response) ~= "y" || isempty(response))
@@ -46,7 +48,7 @@ end
 
 folder_outputs = fullfile(folder_src, 'outputs');
 
-%% Load images 
+%% Load images
 dirList = dir(fullfile(folder_src,'*.Bmp'));
 
 T = struct2table(dirList);
@@ -64,11 +66,6 @@ set(gcf, 'Name', 'Select region of interest and double click to confirm', 'Numbe
 % User selects region of interest (encapsulating markers)
 [~, roiBox] = imcrop(refImage);
 close(gcf)
-
-%% Display region of interest
-refImage_roi = insertShape(refImage, 'Rectangle', roiBox, 'Color', 'green');
-figure; imshow(refImage_roi);
-title("Selected region of interest");
 
 %% Feature tracking
 % Detect features to track
@@ -163,23 +160,10 @@ if playAnimation
     release(videoPlayer)
 end
 
-%% Save animation
-if saveAnimation
-    video_object = VideoWriter(fullfile(folder_outputs,output_file_suffix),'MPEG-4'); % add _tracked to end of folder name
-    open(video_object);
-    for imNum = 1:10:length(dirList)
-        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
-        pts = [x(:,imNum), y(:,imNum)];
-        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-        writeVideo(video_object, currentImage);
-    end
-    close(video_object);
-end
-
 %% Convert from pixels to mm
 fig = figure;
+set(gcf, 'Name', "Draw line equivalent to 10 mm and press Enter", 'NumberTitle', 'off');
 imshow(refImage)
-title("Draw line equivalent to 10 mm and press Enter");
 roi = drawline;
 k = waitforbuttonpress;
 
@@ -189,12 +173,13 @@ close(fig)
 
 %% Manually select glitter as points to track
 fig = figure;
+set(gcf, 'Name', "Select glitter locations and press Enter", 'NumberTitle', 'off');
+
 currentImage = imread(fullfile(dirList(length(dirList)).folder, dirList(length(dirList)).name));
 pts = [x(:,length(dirList)), y(:,length(dirList))];
 currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
 
 imshow(currentImage)
-title("Select glitter locations and press Enter");
 [glitter_x, glitter_y] = getpts;
 close(fig);
 
@@ -206,15 +191,15 @@ av_mag = av_x;
 for i = 1:length(glitter_x)
     % Compute the distance of each tracking point to the user-defined point
     dist = sqrt((x(:,1) - glitter_x(i)).^2 + (y(:,1) - glitter_y(i)).^2);
-    
+
     % Find the indices of tracking points that are within the radius
     within_radius = dist <= search_rad;
-    
+
     if any(within_radius)
         % Extract displacements of points within the radius
         av_x(i,:) = mean(x(within_radius,:));
         av_y(i,:) = mean(y(within_radius,:));
-        
+
         % Compute the magnitude of displacements
         av_mag(i,:) = sqrt(av_x(i,:).^2 + av_y(i,:).^2);
     end
@@ -232,6 +217,59 @@ if playAveragedAnimation
         videoPlayer(currentImage)
     end
     release(videoPlayer)
+end
+
+%% Save outputs
+base_name = split(dirList(1).name, '-');
+base_name = base_name{1};
+
+% Save raw video
+if saveRawVideo
+output_file_suffix = '_tracked';
+
+    video_object = VideoWriter(fullfile(folder_outputs,base_name),'MPEG-4'); % add _tracked to end of folder name
+    open(video_object);
+    for imNum = 1:10:length(dirList)
+        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
+        writeVideo(video_object, currentImage);
+    end
+    close(video_object);
+end
+
+% Save video with all confident tracking points included
+if saveConfidentTrackVideo
+    video_object = VideoWriter(fullfile(folder_outputs,[base_name,'_tracked_all_points']),'MPEG-4'); % add _tracked to end of folder name
+    open(video_object);
+    for imNum = 1:10:length(dirList)
+        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
+        pts = [x(:,imNum), y(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+        writeVideo(video_object, currentImage);
+    end
+    close(video_object);
+end
+
+% Save video with averaged displacements (per piece of glitter)
+if saveAverageTrackVideo
+    video_object = VideoWriter(fullfile(folder_outputs,[base_name,'_tracked_averaged_points']),'MPEG-4'); % add _tracked to end of folder name
+    open(video_object);
+    for imNum = 1:10:length(dirList)
+        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
+        pts = [av_x(:,imNum), av_y(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+        currentImage = insertShape(currentImage, 'circle', [av_x(:,imNum), av_y(:,imNum), repmat(search_rad,[size(av_x,1),1])], 'Color', 'green');
+        writeVideo(video_object, currentImage);
+    end
+    close(video_object);
+end
+
+% Save displacements
+if saveTracking
+    % all confident tracking points
+    save(fullfile(folder_outputs,[base_name,'_tracked_all_points.mat']), 'x', 'y');
+    
+    % averaged displacements
+    save(fullfile(folder_outputs,[base_name,'_tracked_averaged.mat']), 'av_x', 'av_y', 'av_mag');
 end
 
 %% Interpolate velocities across rectangle
