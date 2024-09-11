@@ -6,8 +6,9 @@ dt = 1/framerate;
 search_rad = 10; % pixels (radius around glitter points to average)
 
 % Visualisation and saving toggle on/off
+visualiseProgress = false; % preview tracking throughout analysis
 playAnimation = false;
-saveAnimation = true;
+saveAnimation = false;
 playAverageAnimation = false;
 playInterpAnimation = false;
 
@@ -27,41 +28,44 @@ if numel(dir(fullfile(folder_src,'*.Bmp'))) == 0
 end
 
 if exist(fullfile(folder_src,'outputs'), 'dir')
-    % check if processing has already been performed (does it contain .mat
-    % file?)
+    % check if processing has already been performed
     if numel(dir(fullfile(folder_src,'outputs','*.mat'))) > 0
         % ask user if they want to repeat analysis
         response = input("Motion tracking output detected, are you sure you want to proceed? (y/n) \n", "s");
         if (lower(response) ~= "y" || isempty(response))
             disp("Exiting motion tracking")
             return
+        else
+            disp("Proceeding with motion tracking")
         end
     end
-else 
+else
     % If folder does not exist, create folder.
     mkdir(fullfile(folder_src, 'outputs'))
 end
 
 folder_outputs = fullfile(folder_src, 'outputs');
 
-%% Load images and select region of interest
+%% Load images 
 dirList = dir(fullfile(folder_src,'*.Bmp'));
 
 T = struct2table(dirList);
 dirList = natsortrows(T);
 dirList = table2struct(dirList);
 
+%% Select region of interest
 refImage = imread(fullfile(dirList(1).folder, dirList(1).name));
-figure; imshow(refImage)
 h = size(refImage,1);
 w = size(refImage,2);
-title("Select region of interest and press Enter");
+
+figure;
+set(gcf, 'Name', 'Select region of interest and double click to confirm', 'NumberTitle', 'off');
 
 % User selects region of interest (encapsulating markers)
 [~, roiBox] = imcrop(refImage);
 close(gcf)
 
-% Display region of interest
+%% Display region of interest
 refImage_roi = insertShape(refImage, 'Rectangle', roiBox, 'Color', 'green');
 figure; imshow(refImage_roi);
 title("Selected region of interest");
@@ -69,10 +73,6 @@ title("Selected region of interest");
 %% Feature tracking
 % Detect features to track
 points = detectMinEigenFeatures(im2gray(refImage), 'ROI', roiBox);
-figure; imshow(refImage);
-hold on; plot(points);
-title("Detected features");
-
 pts = round(points.Location);
 idx = sub2ind([h w], pts(:,2), pts(:,1));
 
@@ -89,10 +89,30 @@ time = NaN(length(dirList), 1);
 nPoints = size(pts, 1);
 
 x = NaN(nPoints, length(dirList)); y = x; V = x;
-videoPlayer = vision.VideoPlayer();
+
+if visualiseProgress
+    videoPlayer = vision.VideoPlayer();
+end
+
+f = waitbar(0, 'Tracking motion...', ...
+    'CreateCancelBtn', 'setappdata(gcbf,''canceling'',1)'); % progress bar
+setappdata(f, 'canceling', 0);
 
 % For loop through images in folder of interest
 for imNum = 1:length(dirList)
+    if getappdata(f, 'canceling')
+        release(pointTracker)
+        if visualiseProgress
+            release(videoPlayer)
+        end
+        delete(f)
+        disp('Tracking cancelled \n')
+        return
+    end
+
+    % Update waitbar
+    waitbar(imNum/length(dirList), f)
+
     % Load image
     currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
 
@@ -113,13 +133,21 @@ for imNum = 1:length(dirList)
         currentImage = insertMarker(currentImage, pts, '+', 'Color', 'green');
     end
 
-    videoPlayer(currentImage)
+    if visualiseProgress
+        videoPlayer(currentImage)
+    end
 end
 release(pointTracker)
+
+if visualiseProgress
+    release(videoPlayer)
+end
 
 % Remove entries that were ever invalid
 x = x(~any(V==0,2),:);
 y = y(~any(V==0,2),:);
+
+delete(f)
 
 %% Play animation of tracking
 if playAnimation
@@ -168,11 +196,11 @@ close(fig);
 
 %% Group x and y displacement per point of glitter
 av_x = NaN(length(glitter_x), size(x,2));
-av_y = av_x; 
+av_y = av_x;
 
 % I don't think this works currently - needs to consider y aspect when
 % averaging per glitter point
-for i = 1:length(glitter_x) 
+for i = 1:length(glitter_x)
     temp_x = x(x(:,1)>=(glitter_x(i) - search_rad) & x(:,1) <= (glitter_x(i) + search_rad), :);
     av_x(i, :) = mean(temp_x);
 
@@ -208,7 +236,7 @@ if interpolatedField
         dx(i,:) = conv(x(i,:), -1/dt * g(:,2), 'same');
         dy(i,:) = conv(y(i,:), -1/dt * g(:,2), 'same');
     end
-    
+
     % Interpolation (in development)
     border_size = 50;
     grid_size = 25;
@@ -231,7 +259,7 @@ if interpolatedField
 
     x_q = cumtrapz(dx_q, 2)*dt + repmat(Xq(:), [1, size(x,2)]);
     y_q = cumtrapz(dy_q, 2)*dt + repmat(Yq(:), [1, size(y,2)]);
-    
+
     if playInterpAnimation
         % Play animation of interpolated tracking
         videoPlayer = vision.VideoPlayer();
