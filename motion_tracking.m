@@ -15,7 +15,7 @@ playInterpAnimation = false;
 % Test features on / off
 interpolatedField = false; % doesn't work well without dense coverage of glitter
 
-% Define paths for image files and for storing outputs
+%% Define paths for image files and for storing outputs
 folder_src = '/Users/jdow403/Desktop/AWB015_VID006';
 output_file_suffix = '_tracked';
 
@@ -198,21 +198,27 @@ title("Select glitter locations and press Enter");
 [glitter_x, glitter_y] = getpts;
 close(fig);
 
-%% Group x and y displacement per point of glitter
+%% Compute av displacement per point of glitter
 av_x = NaN(length(glitter_x), size(x,2));
 av_y = av_x;
+av_mag = av_x;
 
-% I don't think this works currently - needs to consider y aspect when
-% averaging per glitter point
 for i = 1:length(glitter_x)
-    temp_x = x(x(:,1)>=(glitter_x(i) - search_rad) & x(:,1) <= (glitter_x(i) + search_rad), :);
-    av_x(i, :) = mean(temp_x);
-
-    temp_y = y(y(:,1)>=(glitter_y(i) - search_rad) & y(:,1) <= (glitter_y(i) + search_rad), :);
-    av_y(i, :) = mean(temp_y);
+    % Compute the distance of each tracking point to the user-defined point
+    dist = sqrt((x(:,1) - glitter_x(i)).^2 + (y(:,1) - glitter_y(i)).^2);
+    
+    % Find the indices of tracking points that are within the radius
+    within_radius = dist <= search_rad;
+    
+    if any(within_radius)
+        % Extract displacements of points within the radius
+        av_x(i,:) = mean(x(within_radius,:));
+        av_y(i,:) = mean(y(within_radius,:));
+        
+        % Compute the magnitude of displacements
+        av_mag(i,:) = sqrt(av_x(i,:).^2 + av_y(i,:).^2);
+    end
 end
-
-clear temp_x temp_y
 
 %% Visualise averaged displacements (per piece of glitter)
 if playAveragedAnimation
