@@ -6,7 +6,7 @@ dt = 1/framerate;
 search_rad = 10; % pixels (radius around glitter points to average)
 
 % Visualisation and saving toggle on/off
-visualiseProgress = false; % preview tracking throughout analysis
+visualiseProgress = false; % preview tracking throughout analysis (progress bar always shown)
 playAnimation = false;
 playAveragedAnimation = false;
 playInterpAnimation = false;
@@ -22,23 +22,23 @@ interpolatedField = false; % doesn't work well without dense coverage of glitter
 %% Define paths for image files and for storing outputs
 folder_src = '/Users/jdow403/Desktop/AWB015_VID006';
 if (~isfolder(folder_src) || numel(dir(fullfile(folder_src,'*.Bmp'))) == 0)
-    folder_src = uigetdir();
+    folder_src = uigetdir(title = 'Select folder containing image sequence to track');
 end
 
 if numel(dir(fullfile(folder_src,'*.Bmp'))) == 0
-    error("Selected folder does not contain an image sequence. Please select a different folder.")
+    error('Selected folder does not contain an image sequence. Please select a different folder.')
 end
 
 if exist(fullfile(folder_src,'outputs'), 'dir')
     % check if processing has already been performed
     if numel(dir(fullfile(folder_src,'outputs','*tracked_averaged.mat'))) > 0
         % ask user if they want to repeat analysis
-        response = input("Motion tracking output detected, are you sure you want to proceed? (y/n) \n", "s");
-        if (lower(response) ~= "y" || isempty(response))
-            disp("Exiting motion tracking")
+        response = input('Motion tracking output detected, are you sure you want to proceed? (y/n) \n', 's');
+        if (lower(response) ~= 'y' || isempty(response))
+            disp('Exiting motion tracking')
             return
         else
-            disp("Proceeding with motion tracking")
+            disp('Proceeding with motion tracking')
         end
     end
 else
@@ -162,7 +162,7 @@ end
 
 %% Convert from pixels to mm
 fig = figure;
-set(gcf, 'Name', "Draw line equivalent to 10 mm and press Enter", 'NumberTitle', 'off');
+set(gcf, 'Name', 'Draw line equivalent to 10 mm and press Enter', 'NumberTitle', 'off');
 imshow(refImage)
 roi = drawline;
 k = waitforbuttonpress;
@@ -173,7 +173,7 @@ close(fig)
 
 %% Manually select glitter as points to track
 fig = figure;
-set(gcf, 'Name', "Select glitter locations and press Enter", 'NumberTitle', 'off');
+set(gcf, 'Name', 'Select glitter locations and press Enter', 'NumberTitle', 'off');
 
 currentImage = imread(fullfile(dirList(length(dirList)).folder, dirList(length(dirList)).name));
 pts = [x(:,length(dirList)), y(:,length(dirList))];
