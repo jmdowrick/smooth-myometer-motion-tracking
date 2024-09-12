@@ -225,8 +225,6 @@ base_name = base_name{1};
 
 % Save raw video
 if saveRawVideo
-output_file_suffix = '_tracked';
-
     video_object = VideoWriter(fullfile(folder_outputs,base_name),'MPEG-4'); % add _tracked to end of folder name
     open(video_object);
     for imNum = 1:10:length(dirList)
@@ -270,6 +268,9 @@ if saveTracking
     
     % averaged displacements
     save(fullfile(folder_outputs,[base_name,'_tracked_averaged.mat']), 'av_x', 'av_y', 'av_mag');
+
+    % conversion from pixels to mm (pixels per mm)
+    save(fullfile(folder_outputs,[base_name,'_pixelpermm.mat']), 'ppmm')
 end
 
 %% Interpolate velocities across rectangle
@@ -322,3 +323,13 @@ if interpolatedField
         release(videoPlayer)
     end
 end
+
+%% Clean up workspace
+clear('base_name', 'currentImage', 'dirList', 'dist', 'dt', 'f', 'fig', ...
+    'folder_outputs', 'folder_src', 'framerate', 'glitter_x', 'glitter_y', ...
+    'h', 'i', 'idx', 'imNum', 'interpolatedField', 'isFound', 'k', 'length_line', ...
+    'nPoints', 'playAnimation', 'playAveragedAnimation', 'playInterpAnimation', ...
+    'points', 'pointTracker', 'pts', 'refImage', 'refImage_roi', 'response', ...
+    'roi', 'roiBox', 'saveAverageTrackVideo', 'saveConfidentTrackVideo', ...
+    'saveRawVideo', 'saveTracking', 'scores', 'search_rad', 'T', 'time', 'V', ...
+    'video_object', 'visualiseProgress', 'w', 'within_radius')
