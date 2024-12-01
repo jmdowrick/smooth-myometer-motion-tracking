@@ -20,7 +20,7 @@ saveTracking = true;
 interpolatedField = false; % doesn't work well without dense coverage of glitter
 
 %% Define paths for image files and for storing outputs
-folder_src = '/Users/jdow403/Desktop/AWB015_VID006';
+folder_src = '/Volumes/Backup 2/intestinal-myometer/AWB022/awb021/AWB021_VID015';
 if (~isfolder(folder_src) || numel(dir(fullfile(folder_src,'*.Bmp'))) == 0)
     folder_src = uigetdir(title = 'Select folder containing image sequence to track');
 end
@@ -91,24 +91,26 @@ if visualiseProgress
     videoPlayer = vision.VideoPlayer();
 end
 
-f = waitbar(0, 'Tracking motion...', ...
-    'CreateCancelBtn', 'setappdata(gcbf,''canceling'',1)'); % progress bar
-setappdata(f, 'canceling', 0);
+fig = uifigure;
+d = uiprogressdlg(fig, 'Title', 'Tracking motion...','Cancelable','on');
+%f = waitbar(0, 'Tracking motion...'); %, ...
+    %'CreateCancelBtn', 'setappdata(gcbf,''canceling'',1)'); % progress bar
+
+%setappdata(f, 'canceling', 0);
 
 % For loop through images in folder of interest
 for imNum = 1:length(dirList)
-    if getappdata(f, 'canceling')
+    if d.CancelRequested
         release(pointTracker)
         if visualiseProgress
             release(videoPlayer)
         end
-        delete(f)
-        disp('Tracking cancelled \n')
-        return
+        disp('Tracking cancelled')
+        brea
     end
 
     % Update waitbar
-    waitbar(imNum/length(dirList), f)
+    d.Value = imNum/length(dirList);
 
     % Load image
     currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
@@ -144,7 +146,7 @@ end
 x = x(~any(V==0,2),:);
 y = y(~any(V==0,2),:);
 
-delete(f)
+close(d)
 
 %% Play animation of tracking
 if playAnimation
@@ -205,6 +207,43 @@ for i = 1:length(glitter_x)
     end
 end
 
+%% Interpolate velocities across rectangle
+if interpolatedField
+    % Calculate x and y velocities
+    [b,g] = sgolay(5,25);
+
+    dx = zeros(size(x));
+    dy = zeros(size(y));
+
+    for i = 1:size(x,1)
+        dx(i,:) = conv(x(i,:), -1/dt * g(:,2), 'same');
+        dy(i,:) = conv(y(i,:), -1/dt * g(:,2), 'same');
+    end
+
+    % Interpolation (in development)
+    border_size = 10;
+    grid_size = 5;
+
+    [Xq, Yq] = meshgrid(round(roiBox(1)+border_size):grid_size:(round(roiBox(1))+round(roiBox(3))-border_size), ...
+        round(roiBox(2)+border_size):grid_size:(round(roiBox(2))+round(roiBox(4))-border_size));
+
+    dx_q = zeros(length(Xq(:)), size(x,2));
+    dy_q = zeros(length(Yq(:)), size(y,2));
+
+    for i = 20:(size(x, 2)-20)
+        F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
+        Vq = F(Xq, Yq);
+        dx_q(:,i) = Vq(:);
+
+        F = scatteredInterpolant(x(:,1), y(:,1), dy(:,i));
+        Vq = F(Xq, Yq);
+        dy_q(:,i) = Vq(:);
+    end
+
+    x_q = cumtrapz(dx_q, 2)*dt + repmat(Xq(:), [1, size(x,2)]);
+    y_q = cumtrapz(dy_q, 2)*dt + repmat(Yq(:), [1, size(y,2)]);
+end
+
 %% Visualise averaged displacements (per piece of glitter)
 if playAveragedAnimation
     videoPlayer = vision.VideoPlayer();
@@ -219,6 +258,19 @@ if playAveragedAnimation
     release(videoPlayer)
 end
 
+%% Visualise interpolated animation
+if playInterpAnimation
+    % Play animation of interpolated tracking
+    videoPlayer = vision.VideoPlayer();
+
+    for imNum = 1:length(dirList)
+        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
+        pts = [x_q(:,imNum), y_q(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
+        videoPlayer(currentImage)
+    end
+    release(videoPlayer)
+end
 %% Save outputs
 base_name = split(dirList(1).name, '-');
 base_name = base_name{1};
@@ -261,7 +313,20 @@ if saveAverageTrackVideo
     close(video_object);
 end
 
-% Save displacements
+% Save video with interpolated displacements
+if saveInterpolatedTrackVideo
+    video_object = VideoWriter(fullfile(folder_outputs,[base_name,'_interpolated']),'MPEG-4'); % add _tracked to end of folder name
+    open(video_object);
+    for imNum = 1:10:length(dirList)
+        currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
+        pts = [x_q(:,imNum), y_q(:,imNum)];
+        currentImage = insertMarker(im2gray(currentImage), pts, 'o', 'Color', 'green');
+        writeVideo(video_object, currentImage);
+    end
+    close(video_object);
+end
+
+%% Save displacements
 if saveTracking
     % all confident tracking points
     save(fullfile(folder_outputs,[base_name,'_tracked_all_points.mat']), 'x', 'y');
@@ -269,59 +334,11 @@ if saveTracking
     % averaged displacements
     save(fullfile(folder_outputs,[base_name,'_tracked_averaged.mat']), 'av_x', 'av_y', 'av_mag');
 
+    % interpolated displacements 
+    save(fullfile(folder_outputs,[base_name,'_tracked_interpolated.mat']), 'x_q', 'y_q', 'Xq', 'Yq');
+
     % conversion from pixels to mm (pixels per mm)
     save(fullfile(folder_outputs,[base_name,'_pixelpermm.mat']), 'ppmm')
-end
-
-%% Interpolate velocities across rectangle
-if interpolatedField
-    % Calculate x and y velocities
-    [b,g] = sgolay(5,25);
-
-    dx = zeros(size(x));
-    dy = zeros(size(y));
-
-    for i = 1:size(x,1)
-        dx(i,:) = conv(x(i,:), -1/dt * g(:,2), 'same');
-        dy(i,:) = conv(y(i,:), -1/dt * g(:,2), 'same');
-    end
-
-    % Interpolation (in development)
-    border_size = 50;
-    grid_size = 25;
-
-    [Xq, Yq] = meshgrid(round(roiBox(1)+border_size):grid_size:(round(roiBox(1))+round(roiBox(3))-border_size), ...
-        round(roiBox(2)+border_size):grid_size:(round(roiBox(1))+round(roiBox(4))-border_size));
-
-    dx_q = zeros(length(Xq(:)), size(x,2));
-    dy_q = zeros(length(Yq(:)), size(y,2));
-
-    for i = 20:(size(x, 2)-20)
-        F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
-        Vq = F(Xq, Yq);
-        dx_q(:,i) = Vq(:);
-
-        F = scatteredInterpolant(x(:,1), y(:,1), dx(:,i));
-        Vq = F(Xq, Yq);
-        dy_q(:,i) = Vq(:);
-    end
-
-    x_q = cumtrapz(dx_q, 2)*dt + repmat(Xq(:), [1, size(x,2)]);
-    y_q = cumtrapz(dy_q, 2)*dt + repmat(Yq(:), [1, size(y,2)]);
-
-    if playInterpAnimation
-        % Play animation of interpolated tracking
-        videoPlayer = vision.VideoPlayer();
-
-        for imNum = 1:length(dirList)
-            currentImage = imread(fullfile(dirList(imNum).folder, dirList(imNum).name));
-            pts = [x_q(:,imNum), y_q(:,imNum)];
-            currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-
-            videoPlayer(currentImage)
-        end
-        release(videoPlayer)
-    end
 end
 
 %% Clean up workspace
