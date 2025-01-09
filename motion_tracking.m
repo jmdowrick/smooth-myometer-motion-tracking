@@ -3,7 +3,7 @@
 %% Set parameters
 framerate = 25; % frames per second
 dt = 1/framerate;
-search_rad = 10; % pixels (radius around glitter points to average)
+search_rad = 25; % pixels (radius around glitter points to average)
 
 % Visualisation and saving toggle on/off
 visualiseProgress = false; % preview tracking throughout analysis (progress bar always shown)
@@ -11,16 +11,17 @@ playAnimation = false;
 playAveragedAnimation = false;
 playInterpAnimation = false;
 
-saveRawVideo = true;
-saveConfidentTrackVideo = true;
-saveAverageTrackVideo = true;
-saveTracking = true;
+saveRawVideo = false;
+saveConfidentTrackVideo = false;
+saveAverageTrackVideo = false;
+saveTracking = false;
+saveInterpolatedTrackVideo = false;
 
 % Test features on / off
 interpolatedField = false; % doesn't work well without dense coverage of glitter
 
 %% Define paths for image files and for storing outputs
-folder_src = '/Volumes/Backup 2/intestinal-myometer/AWB022/awb021/AWB021_VID015';
+folder_src = '/Volumes/Backup 2/intestinal-myometer/AWB016--20240709/AWB016_VID01';
 if (~isfolder(folder_src) || numel(dir(fullfile(folder_src,'*.Bmp'))) == 0)
     folder_src = uigetdir(title = 'Select folder containing image sequence to track');
 end
@@ -78,14 +79,14 @@ pointTracker = vision.PointTracker('MaxBidirectionalError',0.025);
 initialize(pointTracker, points.Location, refImage);
 
 % Visualise tracking as it processes
-w = size(refImage,1);
-h = size(refImage,2);
+h = size(refImage,1);
+w = size(refImage,2);
 
 % Initialise data storage
-time = NaN(length(dirList), 1);
+time = zeros(length(dirList), 1);
 nPoints = size(pts, 1);
 
-x = NaN(nPoints, length(dirList)); y = x; V = x;
+x = zeros(nPoints, length(dirList)); y = x; V = x;
 
 if visualiseProgress
     videoPlayer = vision.VideoPlayer();
@@ -93,10 +94,6 @@ end
 
 fig = uifigure;
 d = uiprogressdlg(fig, 'Title', 'Tracking motion...','Cancelable','on');
-%f = waitbar(0, 'Tracking motion...'); %, ...
-    %'CreateCancelBtn', 'setappdata(gcbf,''canceling'',1)'); % progress bar
-
-%setappdata(f, 'canceling', 0);
 
 % For loop through images in folder of interest
 for imNum = 1:length(dirList)
@@ -106,7 +103,8 @@ for imNum = 1:length(dirList)
             release(videoPlayer)
         end
         disp('Tracking cancelled')
-        brea
+        close(d); close(fig)
+        return
     end
 
     % Update waitbar
@@ -142,11 +140,15 @@ if visualiseProgress
     release(videoPlayer)
 end
 
+% Crop variables to the number of frames processed
+x = x(:,1:imNum); y = y(:,1:imNum); V = V(:,1:imNum);
+
 % Remove entries that were ever invalid
 x = x(~any(V==0,2),:);
 y = y(~any(V==0,2),:);
 
 close(d)
+close(fig)
 
 %% Play animation of tracking
 if playAnimation
@@ -175,12 +177,11 @@ close(fig)
 
 %% Manually select glitter as points to track
 fig = figure;
-set(gcf, 'Name', 'Select glitter locations and press Enter', 'NumberTitle', 'off');
+set(gcf, 'Name', 'Select glitter locations surrounded by green points and press Enter', 'NumberTitle', 'off');
 
 currentImage = imread(fullfile(dirList(length(dirList)).folder, dirList(length(dirList)).name));
 pts = [x(:,length(dirList)), y(:,length(dirList))];
 currentImage = insertMarker(im2gray(currentImage), pts, '+', 'Color', 'green');
-
 imshow(currentImage)
 [glitter_x, glitter_y] = getpts;
 close(fig);
@@ -330,11 +331,11 @@ end
 if saveTracking
     % all confident tracking points
     save(fullfile(folder_outputs,[base_name,'_tracked_all_points.mat']), 'x', 'y');
-    
+
     % averaged displacements
     save(fullfile(folder_outputs,[base_name,'_tracked_averaged.mat']), 'av_x', 'av_y', 'av_mag');
 
-    % interpolated displacements 
+    % interpolated displacements
     save(fullfile(folder_outputs,[base_name,'_tracked_interpolated.mat']), 'x_q', 'y_q', 'Xq', 'Yq');
 
     % conversion from pixels to mm (pixels per mm)
