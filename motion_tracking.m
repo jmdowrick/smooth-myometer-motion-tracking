@@ -21,7 +21,7 @@ saveInterpolatedTrackVideo = false;
 interpolatedField = false; % doesn't work well without dense coverage of glitter
 
 %% Define paths for image files and for storing outputs
-folder_src = '/Volumes/Backup 2/intestinal-myometer/AWB016--20240709/AWB016_VID01';
+folder_src = '/Users/jdow403/Documents/intestinalmyometer/AWB015/AWB015_VID006';
 if (~isfolder(folder_src) || numel(dir(fullfile(folder_src,'*.Bmp'))) == 0)
     folder_src = uigetdir(title = 'Select folder containing image sequence to track');
 end
@@ -207,6 +207,9 @@ for i = 1:length(glitter_x)
         av_mag(i,:) = sqrt(av_x(i,:).^2 + av_y(i,:).^2);
     end
 end
+
+% Subtract the initial "position"
+av_mag = av_mag - av_mag(:,1);
 
 %% Interpolate velocities across rectangle
 if interpolatedField
