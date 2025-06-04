@@ -193,7 +193,7 @@ av_mag = av_x;
 
 for i = 1:length(glitter_x)
     % Compute the distance of each tracking point to the user-defined point
-    dist = sqrt((x(:,1) - glitter_x(i)).^2 + (y(:,1) - glitter_y(i)).^2);
+    dist = sqrt((x(:,end) - glitter_x(i)).^2 + (y(:,end) - glitter_y(i)).^2);
 
     % Find the indices of tracking points that are within the radius
     within_radius = dist <= search_rad;
